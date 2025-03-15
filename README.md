@@ -1,5 +1,3 @@
-# Create a README.md file
-readme_content = """\
 # Customer Churn Prediction 📉💰
 
 ## Overview
