@@ -1,41 +1,77 @@
-import streamlit as st
+import gradio as gr
 import pandas as pd
-import joblib
-import numpy as np
+import pickle
 
-# Load model
-model = joblib.load('xgboost_churn_model.pk1')  # Ensure correct filename
+best_model = pickle.load(open('xgboost_model.pkl', 'rb'))
+label_encoders = pickle.load(open('label_encoders.pkl', 'rb'))
+feature_columns = pickle.load(open('feature_columns.pkl', 'rb'))
 
-# Streamlit UI
-st.title("Customer Churn Prediction")
-st.write("This is a simple demo of a customer churn prediction app.")
+# Prediction function
+def predict_churn(gender, senior, partner, dependents, tenure, phone, multiple, internet,
+                  online_sec, online_back, device, tech, stream_tv, stream_mov,
+                  contract, paperless, payment, monthly_charges, total_charges):
+    
+    input_data = pd.DataFrame([{
+        "gender": gender,
+        "SeniorCitizen": int(senior),
+        "Partner": partner,
+        "Dependents": dependents,
+        "tenure": int(tenure),
+        "PhoneService": phone,
+        "MultipleLines": multiple,
+        "InternetService": internet,
+        "OnlineSecurity": online_sec,
+        "OnlineBackup": online_back,
+        "DeviceProtection": device,
+        "TechSupport": tech,
+        "StreamingTV": stream_tv,
+        "StreamingMovies": stream_mov,
+        "Contract": contract,
+        "PaperlessBilling": paperless,
+        "PaymentMethod": payment,
+        "MonthlyCharges": float(monthly_charges),
+        "TotalCharges": float(total_charges)
+    }])
+    
+    for col, le in label_encoders.items():
+        if col in input_data.columns:
+            input_data[col] = le.transform(input_data[col])
 
-# User input fields
-tenure = st.number_input("📅 Tenure (months)", min_value=0, max_value=100, value=12)
-monthly_charges = st.number_input("💰 Monthly Charges ($)", min_value=0.0, max_value=500.0, value=50.0)
-total_charges = st.number_input("💵 Total Charges ($)", min_value=0.0, max_value=10000.0, value=600.0)
-contract = st.selectbox("📜 Contract Type", ["Month-to-Month", "One Year", "Two Year"])
-payment_method = st.selectbox("💳 Payment Method", ["Electronic Check", "Mailed Check", "Bank Transfer", "Credit Card"])
+    input_data = input_data[feature_columns]
+    
+    prob = best_model.predict_proba(input_data)[:, 1][0]
+    churn = best_model.predict(input_data)[0]
+    churn_label = label_encoders['Churn'].inverse_transform([churn])[0]
 
-# Converting categorical inputs
-contract_map = {"Month-to-Month": 0, "One Year": 1, "Two Year": 2}
-payment_map = {"Electronic Check": 0, "Mailed Check": 1, "Bank Transfer": 2, "Credit Card": 3}
+    return f"Churn Probability: {prob:.2f} | Prediction: {churn_label}"
 
-# Dummy variables for missing categorical features
-dummy_features = np.zeros(25)  # 30 total - 5 existing
+# Gradio Interface
+iface = gr.Interface(
+    fn=predict_churn,
+    inputs=[
+        gr.Dropdown(["Female", "Male"], label="Gender"),
+        gr.Checkbox(label="Senior Citizen (Check if Yes)"),
+        gr.Dropdown(["Yes", "No"], label="Partner"),
+        gr.Dropdown(["Yes", "No"], label="Dependents"),
+        gr.Number(label="Tenure (months)", precision=0),
+        gr.Dropdown(["Yes", "No"], label="Phone Service"),
+        gr.Dropdown(["Yes", "No", "No phone service"], label="Multiple Lines"),
+        gr.Dropdown(["DSL", "Fiber optic", "No"], label="Internet Service"),
+        gr.Dropdown(["Yes", "No", "No internet service"], label="Online Security"),
+        gr.Dropdown(["Yes", "No", "No internet service"], label="Online Backup"),
+        gr.Dropdown(["Yes", "No", "No internet service"], label="Device Protection"),
+        gr.Dropdown(["Yes", "No", "No internet service"], label="Tech Support"),
+        gr.Dropdown(["Yes", "No", "No internet service"], label="Streaming TV"),
+        gr.Dropdown(["Yes", "No", "No internet service"], label="Streaming Movies"),
+        gr.Dropdown(["Month-to-month", "One year", "Two year"], label="Contract"),
+        gr.Dropdown(["Yes", "No"], label="Paperless Billing"),
+        gr.Dropdown(["Electronic check", "Mailed check", "Bank transfer (automatic)", "Credit card (automatic)"], label="Payment Method"),
+        gr.Number(label="Monthly Charges"),
+        gr.Number(label="Total Charges")
+    ],
+    outputs="text",
+    title="Customer Churn Prediction"
+)
 
-# Combine all features into an array
-input_features = np.concatenate([[tenure, monthly_charges, total_charges, contract_map[contract], payment_map[payment_method]], dummy_features])
+iface.launch()
 
-# Reshape for model
-input_features = input_features.reshape(1, -1)
-
-if st.button(" Predict Churn"):
-    churn_prob = model.predict_proba(input_features)[0][1]  # Probability of churn
-    st.write(f"**Churn Probability:** {churn_prob:.2%}")
-
-    # Display result
-    if churn_prob > 0.5:
-        st.error("⚠️ High risk of churn! Consider retention strategies.")
-    else:
-        st.success("✅ Low risk of churn! Customer is likely to stay.")
